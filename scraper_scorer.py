@@ -1,4 +1,4 @@
-from curl_cffi import requests
+import requests
 import urllib.parse
 import pandas as pd
 import numpy as np
@@ -9,55 +9,29 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import streamlit as st
 
-def fetch_note_data(keyword: str, max_pages: int = 2) -> pd.DataFrame:
-    """noteの検索エンドポイントからデータを取得する（WAF完全回避＋セッション維持版）"""
-    api_url = "https://note.com/api/v3/searches"
-    search_url = f"https://note.com/search?context=note&q={urllib.parse.quote(keyword)}"
-
-    # 変更点1: impersonate="chrome120" (より最新のバージョン) を指定
-    session = requests.Session(impersonate="chrome120")
-
-    # 変更点2: APIを叩く前にトップページへアクセスし、Bot判定をクリアしてCookieを取得する
-    try:
-        session.get("https://note.com/", timeout=10)
-        time.sleep(random.uniform(1.0, 2.0)) # 人間らしいアクセス間隔を空ける
-    except Exception:
-        pass # トップページ取得に失敗しても処理は続行
-
-    # 変更点3: API通信時にブラウザが自動付与するSec-Fetch系のヘッダーを完全再現
-    headers = {
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
-        "Referer": search_url,
-        "Origin": "https://note.com",
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-origin",
-    }
-    
+def fetch_note_data(keyword: str, scraper_api_key: str, max_pages: int = 2) -> pd.DataFrame:
+    """ScraperAPIを経由してnoteのデータを取得する（完全クラウド対応版）"""
+    scraper_url = "http://api.scraperapi.com"
     all_articles = []
-    size = 20 # 1ページあたりの取得件数
+    size = 20
     
     for page in range(max_pages):
-        params = {
-            "q": keyword,
-            "context": "note",
-            "size": size,
-            "start": page * size
+        # 1. 取得したい本来のnote APIのURLを構築する
+        target_note_url = f"https://note.com/api/v3/searches?q={urllib.parse.quote(keyword)}&context=note&size={size}&start={page * size}"
+        
+        # 2. ScraperAPIに渡すパラメータを設定
+        payload = {
+            'api_key': scraper_api_key,
+            'url': target_note_url,
+            # 'premium': 'true', # ※もし通常リクエストで弾かれる場合はコメントアウトを外しますが、クレジット消費が激しくなります
         }
+        
         try:
-            response = session.get(
-                api_url, 
-                headers=headers, 
-                params=params, 
-                timeout=15
-            )
+            # プロキシサーバーを経由するため、タイムアウトは長め（60秒）に設定します
+            response = requests.get(scraper_url, params=payload, timeout=60)
             
             if response.status_code == 403:
-                st.error("⚠️ note側のセキュリティ(WAF)にブロックされました。環境（IPアドレス）が原因の可能性があります。")
-                break
-            elif response.status_code == 404:
-                st.error("⚠️ noteのAPIが見つかりません。")
+                st.error("⚠️ 外部プロキシ(ScraperAPI)でのアクセスが拒否されました。APIキーの残高や有効性を確認してください。")
                 break
             elif response.status_code != 200:
                 st.error(f"⚠️ データ取得エラー: ステータスコード {response.status_code}")
@@ -92,7 +66,7 @@ def fetch_note_data(keyword: str, max_pages: int = 2) -> pd.DataFrame:
                 }
                 all_articles.append(article)
                 
-            time.sleep(random.uniform(2.0, 4.0)) # ページ間のウェイト
+            time.sleep(random.uniform(1.0, 2.0))
             
         except Exception as e:
             st.error(f"⚠️ 予期せぬエラーが発生しました: {e}")
@@ -102,6 +76,7 @@ def fetch_note_data(keyword: str, max_pages: int = 2) -> pd.DataFrame:
 
 def calculate_advanced_score(df: pd.DataFrame, weight_demand: float = 0.5, weight_density: float = 0.3, weight_recency: float = 0.2) -> pd.DataFrame:
     """統計とNLPを用いたブルーオーシャン・スコアリング"""
+    # ... (この関数の内容は変更なしのため省略せずにそのまま記載してください)
     if df.empty or len(df) < 2:
         return df
 
