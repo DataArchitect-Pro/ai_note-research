@@ -20,7 +20,6 @@ def generate_content_plan(df_top: pd.DataFrame, target_reader: str, user_strengt
 
     system_prompt = "あなたはプロのコンテンツマーケターであり、note専門の凄腕編集者です。データに基づき、読者の心を動かし競合と差別化できる有料記事（またはリスト取り用記事）の構成案をMarkdown形式で作成してください。"
 
-    # 【改善点1】商品アイデア、売れる理由、差別化ポイントを要求事項に追加
     user_prompt = f"""
     以下の【市場データ】と【執筆者の情報】をもとに、高品質な記事の構成案を作成してください。
 
