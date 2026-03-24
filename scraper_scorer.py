@@ -23,11 +23,10 @@ def fetch_note_data(keyword: str, scraper_api_key: str, max_pages: int = 2) -> p
         payload = {
             'api_key': scraper_api_key,
             'url': target_note_url,
-            # 'premium': 'true', # ※もし通常リクエストで弾かれる場合はコメントアウトを外しますが、クレジット消費が激しくなります
         }
         
         try:
-            # プロキシサーバーを経由するため、タイムアウトは長め（60秒）に設定します
+            # プロキシ経由のためタイムアウトは長めに設定
             response = requests.get(scraper_url, params=payload, timeout=60)
             
             if response.status_code == 403:
@@ -76,7 +75,6 @@ def fetch_note_data(keyword: str, scraper_api_key: str, max_pages: int = 2) -> p
 
 def calculate_advanced_score(df: pd.DataFrame, weight_demand: float = 0.5, weight_density: float = 0.3, weight_recency: float = 0.2) -> pd.DataFrame:
     """統計とNLPを用いたブルーオーシャン・スコアリング"""
-    # ... (この関数の内容は変更なしのため省略せずにそのまま記載してください)
     if df.empty or len(df) < 2:
         return df
 
