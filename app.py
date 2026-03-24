@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
-import time
 from scraper_scorer import fetch_note_data, calculate_advanced_score
-from content_generator import generate_content_plan
+from content_generator import generate_content_plan, generate_market_summary
 
 st.set_page_config(page_title="noteブルーオーシャン発掘ツール", layout="wide")
 
@@ -14,7 +13,7 @@ def check_password():
     if not st.session_state["password_correct"]:
         st.markdown("### 🔒 ツールへのログイン")
         pwd = st.text_input("購入者限定パスワードを入力してください", type="password")
-        if pwd == "note-ai-2026": # ※運用時に任意の文字列に変更してください
+        if pwd == "note-ai-2026": 
             st.session_state["password_correct"] = True
             st.rerun()
         elif pwd:
@@ -23,10 +22,13 @@ def check_password():
 
 check_password()
 
+# 【改善点2】状態保持（Session State）の初期化
+if 'search_done' not in st.session_state:
+    st.session_state['search_done'] = False
+
 # --- 2. サイドバー（入力UI） ---
 st.sidebar.title("⚙️ 設定・入力")
 
-# 【追加部分】2つのAPIキーを入力させる
 st.sidebar.markdown("**1. APIキーの設定**")
 api_key = st.sidebar.text_input("OpenAI APIキー (sk-...)", type="password", help="構成案の自動生成に使用します")
 scraper_api_key = st.sidebar.text_input("ScraperAPIキー", type="password", help="noteのデータ取得（ブロック回避）に使用します")
@@ -46,9 +48,8 @@ with st.sidebar.expander("詳細スコアリング設定"):
 
 start_button = st.sidebar.button("🚀 リサーチ＆構成作成スタート", type="primary")
 
-# --- 3. メインロジック ---
+# --- 3. メインロジック（実行とメモリへの保存） ---
 if start_button:
-    # バリデーションチェック（ScraperAPIキーの確認を追加）
     if not api_key or not scraper_api_key or not keyword:
         st.warning("⚠️ OpenAI APIキー、ScraperAPIキー、リサーチキーワードの3点は必須です。")
         st.stop()
@@ -56,7 +57,6 @@ if start_button:
     my_bar = st.progress(0, text="noteの市場データを解析中...")
     
     with st.spinner('noteからデータを取得・スコアリングしています...（約1〜2分）'):
-        # 引数に scraper_api_key を追加してデータ取得を実行
         df_raw = fetch_note_data(keyword, scraper_api_key, max_pages)
         
         if df_raw.empty:
@@ -64,15 +64,30 @@ if start_button:
             st.stop()
             
         df_scored = calculate_advanced_score(df_raw, weight_demand, weight_density, weight_recency)
-        my_bar.progress(50, text="AIが最適な構成案を生成中...")
+        my_bar.progress(50, text="AIが最適な構成案と市場サマリーを生成中...")
         
+        # AI生成処理の実行
         final_plan = generate_content_plan(df_scored, target_reader, user_strength, api_key)
+        market_summary = generate_market_summary(df_scored, api_key)
+        
+        # 【重要】結果をセッションステート（メモリ）に保存
+        st.session_state['df_scored'] = df_scored
+        st.session_state['final_plan'] = final_plan
+        st.session_state['market_summary'] = market_summary
+        st.session_state['search_done'] = True # 実行完了フラグを立てる
+        
         my_bar.progress(100, text="処理完了！")
 
-    # --- 4. 結果表示（タブUI） ---
+# --- 4. 結果表示（ボタンが押された後、または既にデータがある場合に表示） ---
+if st.session_state['search_done']:
+    # メモリからデータを呼び出し
+    df_scored = st.session_state['df_scored']
+    final_plan = st.session_state['final_plan']
+    market_summary = st.session_state['market_summary']
+
     st.success("✨ リサーチと構成の作成が完了しました！")
     
-    tab1, tab2, tab3 = st.tabs(["🏆 ブルーオーシャン候補", "📝 記事構成＆戦略", "📊 データ出力（CSV）"])
+    tab1, tab2, tab3 = st.tabs(["🏆 ブルーオーシャン候補", "📝 記事構成＆戦略", "📊 市場データ分析"])
     
     with tab1:
         st.markdown("### 狙い目テーマTOP5")
@@ -82,15 +97,18 @@ if start_button:
         st.markdown("### あなた専用のnote構成案")
         st.markdown(final_plan)
         
-        # ダウンロードボタン（構成案）
+        # ダウンロードボタンを押してもセッションが維持されるため消えません
         st.download_button("📥 構成案をMarkdownでダウンロード", final_plan, file_name="note_plan.md")
 
     with tab3:
-        st.markdown("### 取得した市場データ")
+        # 【改善点3】取得した市場データの概要となぜブルーオーシャンなのかを解説
+        st.markdown("### 💡 市場データの傾向と分析")
+        st.info(market_summary)
+        
+        st.markdown("### 取得した市場データ（生データ）")
         st.dataframe(df_scored)
         
-        # ダウンロードボタン（CSV）
-        csv = df_scored.to_csv(index=False).encode('utf-8-sig') # 文字化け防止
+        csv = df_scored.to_csv(index=False).encode('utf-8-sig') 
         st.download_button(
             label="📊 市場データをCSVでダウンロード", 
             data=csv, 
