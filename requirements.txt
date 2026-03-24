@@ -1,6 +1,6 @@
 streamlit
 pandas
-curl_cffi
+requests
 scikit-learn
 numpy
 openai
