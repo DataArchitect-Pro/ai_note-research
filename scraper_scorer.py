@@ -1,4 +1,4 @@
-import requests
+from curl_cffi import requests  # 変更点1: 強力なブラウザ偽装ライブラリに変更
 import urllib.parse
 import pandas as pd
 import numpy as np
@@ -10,21 +10,14 @@ from sklearn.metrics.pairwise import cosine_similarity
 import streamlit as st
 
 def fetch_note_data(keyword: str, max_pages: int = 2) -> pd.DataFrame:
-    """noteの検索エンドポイントからデータを取得する（v3・WAF回避強化版）"""
+    """noteの検索エンドポイントからデータを取得する（WAF完全回避版）"""
     api_url = "https://note.com/api/v3/searches"
     
-    # ヘッダーを本物のChromeブラウザに極力近づける
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
-        # 検索画面から遷移してきたように偽装する（Referer）
         "Referer": f"https://note.com/search?context=note&q={urllib.parse.quote(keyword)}"
     }
-    
-    # セッション機能を使用してアクセス履歴（Cookie等）を保持し、機械的なアクセス判定を回避
-    session = requests.Session()
-    session.headers.update(headers)
     
     all_articles = []
     size = 20 # 1ページあたりの取得件数
@@ -37,14 +30,28 @@ def fetch_note_data(keyword: str, max_pages: int = 2) -> pd.DataFrame:
             "start": page * size
         }
         try:
-            # requests.get ではなく session.get を使用
-            response = session.get(api_url, params=params, timeout=10)
-            response.raise_for_status()
-            data = response.json()
+            # 変更点2: impersonate="chrome110" でTLSフィンガープリントまでChromeと完全に同一にする
+            response = requests.get(
+                api_url, 
+                headers=headers, 
+                params=params, 
+                impersonate="chrome110", 
+                timeout=15
+            )
             
+            if response.status_code == 403:
+                st.error("⚠️ note側のセキュリティにブロックされました。時間を置いてお試しください。")
+                break
+            elif response.status_code == 404:
+                st.error("⚠️ noteのAPIが見つかりません。")
+                break
+            elif response.status_code != 200:
+                st.error(f"⚠️ データ取得エラー: ステータスコード {response.status_code}")
+                break
+                
+            data = response.json()
             response_data = data.get("data", {})
             
-            # APIのJSON構造のゆらぎに対応できる堅牢な取得
             if "notes" in response_data and isinstance(response_data["notes"], dict):
                 notes = response_data["notes"].get("contents", [])
             elif "notes" in response_data and isinstance(response_data["notes"], list):
@@ -71,16 +78,8 @@ def fetch_note_data(keyword: str, max_pages: int = 2) -> pd.DataFrame:
                 }
                 all_articles.append(article)
                 
-            time.sleep(random.uniform(1.5, 3.0)) # IPバン対策のランダムウェイト
+            time.sleep(random.uniform(2.0, 4.0)) # 安全のためのウェイト
             
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 403:
-                st.error("⚠️ アクセスが集中しているため、note側で一時的な制限がかかりました。数分後に再度お試しください。")
-            elif e.response.status_code == 404:
-                st.error("⚠️ noteのAPIが見つかりません。APIの仕様がさらに変更された可能性があります。")
-            else:
-                st.error(f"⚠️ データ取得エラー: {e}")
-            break
         except Exception as e:
             st.error(f"⚠️ 予期せぬエラーが発生しました: {e}")
             break
