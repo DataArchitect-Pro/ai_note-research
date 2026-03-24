@@ -13,7 +13,7 @@ def check_password():
     if not st.session_state["password_correct"]:
         st.markdown("### 🔒 ツールへのログイン")
         pwd = st.text_input("購入者限定パスワードを入力してください", type="password")
-        if pwd == "note-ai-2026": 
+        if pwd == "tN2@mlVMg6wQNLRShy": 
             st.session_state["password_correct"] = True
             st.rerun()
         elif pwd:
