@@ -22,7 +22,7 @@ def check_password():
 
 check_password()
 
-# 【改善点2】状態保持（Session State）の初期化
+# 状態保持（Session State）の初期化
 if 'search_done' not in st.session_state:
     st.session_state['search_done'] = False
 
@@ -35,9 +35,9 @@ scraper_api_key = st.sidebar.text_input("ScraperAPIキー", type="password", hel
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("**2. リサーチ条件**")
-keyword = st.sidebar.text_input("🔍 リサーチキーワード", placeholder="例：経理 エクセル 時短")
-target_reader = st.sidebar.text_area("👤 ターゲット読者像", placeholder="例：手作業で毎月残業している30代経理")
-user_strength = st.sidebar.text_area("💪 あなたの本業・強み", placeholder="例：メーカー経理歴10年、VBAとPythonが書ける")
+keyword = st.sidebar.text_input("🔍 リサーチキーワード", placeholder="例：副業 エクセル 時短")
+target_reader = st.sidebar.text_area("👤 ターゲット読者像", placeholder="例：毎日残業に追われている30代の経理担当者")
+user_strength = st.sidebar.text_area("💪 あなたの本業・強み", placeholder="例：メーカー経理歴10年、VBAコードが書ける")
 
 st.sidebar.markdown("---")
 with st.sidebar.expander("詳細スコアリング設定"):
@@ -70,47 +70,45 @@ if start_button:
         final_plan = generate_content_plan(df_scored, target_reader, user_strength, api_key)
         market_summary = generate_market_summary(df_scored, api_key)
         
-        # 【重要】結果をセッションステート（メモリ）に保存
+        # 結果をセッションステート（メモリ）に保存
         st.session_state['df_scored'] = df_scored
         st.session_state['final_plan'] = final_plan
         st.session_state['market_summary'] = market_summary
-        st.session_state['search_done'] = True # 実行完了フラグを立てる
+        st.session_state['search_done'] = True
         
         my_bar.progress(100, text="処理完了！")
 
-# --- 4. 結果表示（ボタンが押された後、または既にデータがある場合に表示） ---
+# --- 4. 結果表示（1ページ統合UI） ---
 if st.session_state['search_done']:
-    # メモリからデータを呼び出し
     df_scored = st.session_state['df_scored']
     final_plan = st.session_state['final_plan']
     market_summary = st.session_state['market_summary']
 
-    st.success("✨ リサーチと構成の作成が完了しました！")
+    st.success("✨ リサーチと構成の作成が完了しました！下にスクロールして結果を確認してください。")
     
-    tab1, tab2, tab3 = st.tabs(["🏆 ブルーオーシャン候補", "📝 記事構成＆戦略", "📊 市場データ分析"])
+    # 1. 市場分析サマリー
+    st.markdown("---")
+    st.markdown("### 💡 市場データの傾向とAI分析")
+    st.info(market_summary)
     
-    with tab1:
-        st.markdown("### 狙い目テーマTOP5")
-        st.dataframe(df_scored[['title', 'total_score', 'demand_score', 'density_score', 'recency_score', 'url']].head(5))
-        
-    with tab2:
-        st.markdown("### あなた専用のnote構成案")
-        st.markdown(final_plan)
-        
-        # ダウンロードボタンを押してもセッションが維持されるため消えません
-        st.download_button("📥 構成案をMarkdownでダウンロード", final_plan, file_name="note_plan.md")
+    # 2. メインコンテンツ（戦略とプロンプト）
+    st.markdown("---")
+    st.markdown("### 📝 あなた専用のnote戦略と執筆プロンプト")
+    st.markdown(final_plan)
+    
+    # ダウンロードボタン
+    st.download_button("📥 この戦略とプロンプトをMarkdownでダウンロード", final_plan, file_name="note_plan.md")
 
-    with tab3:
-        # 【改善点3】取得した市場データの概要となぜブルーオーシャンなのかを解説
-        st.markdown("### 💡 市場データの傾向と分析")
-        st.info(market_summary)
-        
-        st.markdown("### 取得した市場データ（生データ）")
-        st.dataframe(df_scored)
+    # 3. 分析根拠となるデータ（折りたたみメニューに格納してスッキリ見せる）
+    st.markdown("---")
+    with st.expander("📊 取得した市場データ（分析の根拠となったブルーオーシャン候補）", expanded=False):
+        st.markdown("AIが分析の根拠とした上位の狙い目テーマ一覧です。")
+        # 必要なカラムだけを抽出し、上位10件を表示
+        st.dataframe(df_scored[['title', 'total_score', 'demand_score', 'density_score', 'recency_score', 'url']].head(10))
         
         csv = df_scored.to_csv(index=False).encode('utf-8-sig') 
         st.download_button(
-            label="📊 市場データをCSVでダウンロード", 
+            label="📊 全ての市場データをCSVでダウンロード", 
             data=csv, 
             file_name="blue_ocean_data.csv", 
             mime="text/csv"
