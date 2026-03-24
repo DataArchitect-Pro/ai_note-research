@@ -1,6 +1,15 @@
+import requests
+import pandas as pd
+import numpy as np
+import time
+import random
+from datetime import datetime, timezone
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import streamlit as st
+
 def fetch_note_data(keyword: str, max_pages: int = 2) -> pd.DataFrame:
     """noteの検索エンドポイントからデータを取得する（v3対応版）"""
-    # 変更点1: v2からv3エンドポイントに変更
     api_url = "https://note.com/api/v3/searches"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -11,7 +20,6 @@ def fetch_note_data(keyword: str, max_pages: int = 2) -> pd.DataFrame:
     size = 20 # 1ページあたりの取得件数
     
     for page in range(max_pages):
-        # 変更点2: v3用のパラメータ（ページ数ではなく offset 方式の 'start' を使用）
         params = {
             "q": keyword,
             "context": "note",
@@ -23,7 +31,6 @@ def fetch_note_data(keyword: str, max_pages: int = 2) -> pd.DataFrame:
             response.raise_for_status()
             data = response.json()
             
-            # 変更点3: v3 APIのより深いJSON階層に合わせてデータを抽出
             response_data = data.get("data", {})
             
             # APIのJSON構造のゆらぎに対応できる堅牢な取得
@@ -40,7 +47,6 @@ def fetch_note_data(keyword: str, max_pages: int = 2) -> pd.DataFrame:
                 break
                 
             for item in notes:
-                # ユーザー情報の取得（キーが存在しない場合のエラーを防ぐ）
                 user_info = item.get("user", {})
                 urlname = user_info.get("urlname", "unknown")
                 key = item.get("key", "")
@@ -49,7 +55,6 @@ def fetch_note_data(keyword: str, max_pages: int = 2) -> pd.DataFrame:
                     "title": item.get("name"),
                     "like_count": item.get("likeCount", 0),
                     "author": urlname,
-                    # createdAtがない場合はpublishAtでフォールバック
                     "created_at": item.get("createdAt", item.get("publishAt")),
                     "url": f"https://note.com/{urlname}/n/{key}" if key else ""
                 }
@@ -70,3 +75,44 @@ def fetch_note_data(keyword: str, max_pages: int = 2) -> pd.DataFrame:
             break
             
     return pd.DataFrame(all_articles)
+
+def calculate_advanced_score(df: pd.DataFrame, weight_demand: float = 0.5, weight_density: float = 0.3, weight_recency: float = 0.2) -> pd.DataFrame:
+    """統計とNLPを用いたブルーオーシャン・スコアリング"""
+    if df.empty or len(df) < 2:
+        return df
+
+    # 1. 需要スコア (対数変換)
+    log_likes = np.log1p(df['like_count'])
+    min_like, max_like = log_likes.min(), log_likes.max()
+    df['demand_score'] = (log_likes - min_like) / (max_like - min_like) if max_like > min_like else 0.5
+
+    # 2. 競合密度スコア (TF-IDF文字N-gram)
+    vectorizer = TfidfVectorizer(analyzer='char_wb', ngram_range=(2, 3))
+    try:
+        tfidf_matrix = vectorizer.fit_transform(df['title'].fillna(''))
+        cosine_sim = cosine_similarity(tfidf_matrix, tfidf_matrix)
+        avg_similarities = (cosine_sim.sum(axis=1) - 1) / (len(df) - 1)
+        df['density_score'] = 1.0 - avg_similarities
+    except Exception:
+        df['density_score'] = 0.5
+
+    # 3. リプレイス機会スコア (経過日数)
+    now = datetime.now(timezone.utc)
+    df['days_old'] = df['created_at'].apply(lambda x: (now - pd.to_datetime(x, utc=True)).days if pd.notnull(x) else 0)
+    max_days = df['days_old'].max()
+    df['recency_score'] = df['days_old'] / max_days if max_days > 0 else 0.5
+
+    # 4. 総合スコアの算出
+    df['total_score'] = (
+        (df['demand_score'] * weight_demand) +
+        (df['density_score'] * weight_density) +
+        (df['recency_score'] * weight_recency)
+    ) * 100
+
+    # 表示用に丸める
+    for col in ['total_score', 'demand_score', 'density_score', 'recency_score']:
+        df[col] = df[col].round(1)
+        if col != 'total_score':
+             df[col] = (df[col] * 100).round(1)
+
+    return df.sort_values(by='total_score', ascending=False).reset_index(drop=True)
