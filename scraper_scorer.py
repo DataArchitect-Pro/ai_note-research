@@ -1,5 +1,4 @@
 import requests
-import urllib.parse
 import pandas as pd
 import numpy as np
 import time
@@ -10,27 +9,38 @@ from sklearn.metrics.pairwise import cosine_similarity
 import streamlit as st
 
 def fetch_note_data(keyword: str, scraper_api_key: str, max_pages: int = 2) -> pd.DataFrame:
-    """ScraperAPIを経由してnoteのデータを取得する（完全クラウド対応版）"""
+    """ScraperAPIを経由してnoteのデータを取得する（完全クラウド対応・Premium版）"""
     scraper_url = "http://api.scraperapi.com"
     all_articles = []
     size = 20
     
+    # noteに渡すヘッダー（ScraperAPI経由で送信）
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+    }
+    
     for page in range(max_pages):
-        # 1. 取得したい本来のnote APIのURLを構築する
-        target_note_url = f"https://note.com/api/v3/searches?q={urllib.parse.quote(keyword)}&context=note&size={size}&start={page * size}"
+        # 修正1: requestsが自動エンコードするため事前エンコードを解除（二重エンコード防止）
+        target_note_url = f"https://note.com/api/v3/searches?q={keyword}&context=note&size={size}&start={page * size}"
         
-        # 2. ScraperAPIに渡すパラメータを設定
+        # 修正2: ScraperAPIの強力なオプションを有効化
         payload = {
             'api_key': scraper_api_key,
             'url': target_note_url,
+            'keep_headers': 'true', # 上記のChrome偽装ヘッダーを維持してターゲットに届ける
+            'premium': 'true',      # 住宅用IP（レジデンシャルプロキシ）を使用してCloudflare等のWAFを確実に突破する
         }
         
         try:
             # プロキシ経由のためタイムアウトは長めに設定
-            response = requests.get(scraper_url, params=payload, timeout=60)
+            response = requests.get(scraper_url, headers=headers, params=payload, timeout=60)
             
             if response.status_code == 403:
-                st.error("⚠️ 外部プロキシ(ScraperAPI)でのアクセスが拒否されました。APIキーの残高や有効性を確認してください。")
+                st.error("⚠️ 外部プロキシ(ScraperAPI)でのアクセスが拒否されました。APIキーを確認してください。")
+                break
+            elif response.status_code == 500:
+                st.error(f"⚠️ サーバーエラー(500): ターゲットサイト(note)またはプロキシ側で処理に失敗しました。")
                 break
             elif response.status_code != 200:
                 st.error(f"⚠️ データ取得エラー: ステータスコード {response.status_code}")
