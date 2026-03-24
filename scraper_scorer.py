@@ -1,4 +1,5 @@
 import requests
+import urllib.parse
 import pandas as pd
 import numpy as np
 import time
@@ -9,12 +10,21 @@ from sklearn.metrics.pairwise import cosine_similarity
 import streamlit as st
 
 def fetch_note_data(keyword: str, max_pages: int = 2) -> pd.DataFrame:
-    """noteの検索エンドポイントからデータを取得する（v3対応版）"""
+    """noteの検索エンドポイントからデータを取得する（v3・WAF回避強化版）"""
     api_url = "https://note.com/api/v3/searches"
+    
+    # ヘッダーを本物のChromeブラウザに極力近づける
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+        # 検索画面から遷移してきたように偽装する（Referer）
+        "Referer": f"https://note.com/search?context=note&q={urllib.parse.quote(keyword)}"
     }
+    
+    # セッション機能を使用してアクセス履歴（Cookie等）を保持し、機械的なアクセス判定を回避
+    session = requests.Session()
+    session.headers.update(headers)
     
     all_articles = []
     size = 20 # 1ページあたりの取得件数
@@ -27,7 +37,8 @@ def fetch_note_data(keyword: str, max_pages: int = 2) -> pd.DataFrame:
             "start": page * size
         }
         try:
-            response = requests.get(api_url, headers=headers, params=params, timeout=10)
+            # requests.get ではなく session.get を使用
+            response = session.get(api_url, params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
             
@@ -60,7 +71,7 @@ def fetch_note_data(keyword: str, max_pages: int = 2) -> pd.DataFrame:
                 }
                 all_articles.append(article)
                 
-            time.sleep(random.uniform(1.5, 3.0)) # IPバン対策のウェイト
+            time.sleep(random.uniform(1.5, 3.0)) # IPバン対策のランダムウェイト
             
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 403:
