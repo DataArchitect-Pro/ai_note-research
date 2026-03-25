@@ -1,5 +1,6 @@
 import pandas as pd
 from openai import OpenAI
+import requests
 
 def generate_content_plan(df_top: pd.DataFrame, target_reader: str, user_strength: str, api_key: str) -> str:
     """OpenAI APIを使用して販売戦略と各テーマごとの専用プロンプトを生成する"""
@@ -22,7 +23,6 @@ def generate_content_plan(df_top: pd.DataFrame, target_reader: str, user_strengt
 データに基づき、noteの連載テーマ案と、それを別のAIに書かせるための「専用プロンプト（指示書）」を作成するのがあなたの仕事です。
 【厳守事項】あなた自身が記事の目次（H2やH3など）や構成案を出力することは固く禁じます。必ず指定されたプロンプトのフォーマットのみを出力してください。"""
 
-    # 【改善点】プロンプトの出力指示に「既存記事との差別化」と「有料エリアの指定」を明確に追加
     user_prompt = f"""
     以下の【市場データ】と【執筆者の情報】をもとに、noteの連載テーマ案（厳選5個）と、各テーマの執筆用プロンプトを作成してください。
 
@@ -123,3 +123,34 @@ def generate_market_summary(df_top: pd.DataFrame, api_key: str) -> str:
         return response.choices[0].message.content
     except Exception:
         return "市場データの解析サマリーの生成に失敗しました。"
+
+def expand_keywords_with_perplexity(keyword: str, perplexity_api_key: str) -> list:
+    """Perplexity APIを使用して、ウェブ上の最新トレンドから掛け合わせキーワードを3つ抽出する"""
+    url = "https://api.perplexity.ai/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {perplexity_api_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "sonar",
+        "messages": [
+            {
+                "role": "system", 
+                "content": "あなたは優秀なリサーチャーです。ユーザーのキーワードに関連する、現在ウェブ上で検索されている最新の悩みやトレンドを含む「掛け合わせキーワード（2〜3語の組み合わせ）」を3つ提案してください。出力は絶対にキーワードのみをカンマ区切り（例: 経理 パワークエリ 自動化, 経理 マクロ エラー, インボイス エクセル 突合）で出力し、他の説明や記号は一切含めないでください。"
+            },
+            {
+                "role": "user", 
+                "content": f"キーワード: {keyword}"
+            }
+        ]
+    }
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        content = data['choices'][0]['message']['content']
+        # カンマ区切りの文字列をリストに変換し、余分な空白を削除
+        keywords = [k.strip() for k in content.split(',')]
+        return [k for k in keywords if k]
+    except Exception:
+        return []
