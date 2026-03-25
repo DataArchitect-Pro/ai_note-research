@@ -80,14 +80,14 @@ if start_button:
         
         my_bar.progress(60, text="取得データをスコアリング中（ノイズ除去フィルター適用）...")
         
-        # 【改修】ユーザーの文脈（キーワード＋強み）を結合してスコアリングに渡し、ノイズを排除
         user_context_str = f"{keyword} {target_reader} {user_strength}"
         df_scored = calculate_advanced_score(df_raw_combined, weight_demand, weight_density, weight_recency, user_context=user_context_str)
         
         my_bar.progress(70, text="AIが最適な構成案と市場サマリーを生成中...")
-        final_plan = generate_content_plan(df_scored, target_reader, user_strength, api_key)
         
         keywords_str = "、".join(search_keywords)
+        # 【改修】構成案生成関数にも keywords_str を渡し、マッチ度評価と順位付けに活用させる
+        final_plan = generate_content_plan(df_scored, keywords_str, target_reader, user_strength, api_key)
         market_summary = generate_market_summary(df_scored, api_key, keywords_str, target_reader, user_strength)
         
         st.session_state['df_scored'] = df_scored
@@ -121,7 +121,6 @@ if st.session_state['search_done']:
     st.markdown("---")
     with st.expander("📊 取得した市場データ（分析の根拠となったブルーオーシャン候補）", expanded=False):
         st.markdown(f"**合計 {len(df_scored)}件** の記事データを分析しました。（※関連度スコアが低いノイズ記事は下位に排除されています）")
-        # 【改修】表の中に「relevance_score（関連度）」の列を表示する
         st.dataframe(df_scored[['title', 'total_score', 'relevance_score', 'demand_score', 'density_score', 'recency_score', 'url']].head(10))
         
         csv = df_scored.to_csv(index=False).encode('utf-8-sig') 
