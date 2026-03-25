@@ -31,7 +31,6 @@ st.sidebar.title("⚙️ 設定・入力")
 st.sidebar.markdown("**1. APIキーの設定**")
 api_key = st.sidebar.text_input("OpenAI APIキー (sk-...)", type="password", help="構成案の自動生成に使用します")
 scraper_api_key = st.sidebar.text_input("ScraperAPIキー", type="password", help="noteのデータ取得（ブロック回避）に使用します")
-# 【追加】Perplexity APIの任意入力欄
 perplexity_api_key = st.sidebar.text_input("Perplexity APIキー (任意)", type="password", help="入力すると最新のウェブトレンドを加味した高度なリサーチが自動で実行されます")
 
 st.sidebar.markdown("---")
@@ -60,7 +59,6 @@ if start_button:
     with st.spinner('市場データを収集中です...（約1〜3分）'):
         search_keywords = [keyword]
         
-        # 【追加】Perplexityキーがある場合のみトレンド拡張を実行
         if perplexity_api_key:
             my_bar.progress(10, text="Perplexityで最新トレンドを分析中...")
             expanded = expand_keywords_with_perplexity(keyword, perplexity_api_key)
@@ -68,7 +66,6 @@ if start_button:
                 search_keywords.extend(expanded)
                 st.info(f"💡 Perplexityが最新トレンドを検知し、リサーチ範囲を拡張しました:\n{', '.join(expanded)}")
         
-        # 拡張されたすべてのキーワードでnoteデータを取得
         all_raw_dfs = []
         total_kws = len(search_keywords)
         for i, kw in enumerate(search_keywords):
@@ -82,7 +79,6 @@ if start_button:
             st.warning("対象データが見つかりませんでした。別のキーワードをお試しください。")
             st.stop()
             
-        # 取得したすべてのデータを統合し、重複URLを排除
         df_raw_combined = pd.concat(all_raw_dfs).drop_duplicates(subset=['url']).reset_index(drop=True)
         
         my_bar.progress(60, text="取得データをスコアリング中...")
@@ -90,17 +86,20 @@ if start_button:
         
         my_bar.progress(70, text="AIが最適な構成案と市場サマリーを生成中...")
         final_plan = generate_content_plan(df_scored, target_reader, user_strength, api_key)
-        market_summary = generate_market_summary(df_scored, api_key)
+        
+        # 【改修】市場分析にキーワードと強みを引き渡し、文脈のズレを防ぐ
+        keywords_str = "、".join(search_keywords)
+        market_summary = generate_market_summary(df_scored, api_key, keywords_str, target_reader, user_strength)
         
         st.session_state['df_scored'] = df_scored
         st.session_state['final_plan'] = final_plan
         st.session_state['market_summary'] = market_summary
-        st.session_state['search_keywords'] = search_keywords # 検索キーワード履歴も保存
+        st.session_state['search_keywords'] = search_keywords 
         st.session_state['search_done'] = True
         
         my_bar.progress(100, text="処理完了！")
 
-# --- 4. 結果表示（1ページ統合UI） ---
+# --- 4. 結果表示 ---
 if st.session_state['search_done']:
     df_scored = st.session_state['df_scored']
     final_plan = st.session_state['final_plan']
