@@ -2,7 +2,8 @@ import pandas as pd
 from openai import OpenAI
 import requests
 
-def generate_content_plan(df_top: pd.DataFrame, target_reader: str, user_strength: str, api_key: str) -> str:
+# 【改修】引数に keywords: str を追加し、リサーチキーワードの情報をAIに渡す
+def generate_content_plan(df_top: pd.DataFrame, keywords: str, target_reader: str, user_strength: str, api_key: str) -> str:
     """OpenAI APIを使用して販売戦略と各テーマごとの専用プロンプトを生成する"""
     if df_top.empty:
         return "有効なデータがありません。検索キーワードを変更してお試しください。"
@@ -32,6 +33,7 @@ def generate_content_plan(df_top: pd.DataFrame, target_reader: str, user_strengt
     {top_3_context}
     
     ### 【執筆者の情報】
+    リサーチキーワード: {keywords}
     ターゲット読者像: {target_reader}
     執筆者の本業・強み: {user_strength}
 
@@ -40,11 +42,12 @@ def generate_content_plan(df_top: pd.DataFrame, target_reader: str, user_strengt
     - **全体の商品アイデア概要**: （どのような内容を誰に提供するのか全体像）
 
     ## 📝 2. 具体的な執筆テーマとAI執筆プロンプト（厳選5テーマ）
-    連載や複数記事として展開できるテーマを【必ず5個】提案してください。
+    「書き始めるのに最もおすすめの順番（推奨順）」でテーマ1〜5を並べて提案してください。（テーマ1が最優先で書くべき一番おすすめのテーマです）
     【重要】各テーマについて、以下のフォーマットを「一言一句変えずに」使用して出力してください。目次や構成案は絶対に書かないでください。
 
     ---
-    ### 【テーマ1】: [具体的なテーマ名や切り口]
+    ### 【テーマ1（推奨度1位）】: [具体的なテーマ名や切り口]
+    - **マッチ度**: [リサーチキーワードと執筆者の強みからのマッチ度を★の5段階で評価。例：★★★★★]
     - **なぜ今の市場で売れるのか**: [ターゲットの深い悩みと、市場の空き状況からの考察]
     - **既存記事との差別化ポイント**: [執筆者の強みをどう活かして勝つか]
     
@@ -70,11 +73,11 @@ def generate_content_plan(df_top: pd.DataFrame, target_reader: str, user_strengt
     3. その構成案に従って、無料エリア（読者への共感と問題提起）と有料エリア（具体的な手順、差別化された独自のノウハウ、実例）に分けて「本文」を執筆してください。
     ```
     ---
-    ### 【テーマ2】: [具体的なテーマ名や切り口]
+    ### 【テーマ2（推奨度2位）】: [具体的なテーマ名や切り口]
     （※テーマ1と全く同じフォーマットで出力。目次は書かない。）
 
     ---
-    （※以降、テーマ5まで上記と全く同じフォーマットで繰り返し、必ず5個すべて出力して完了してください）
+    （※以降、テーマ5（推奨度5位）まで上記と全く同じフォーマットで繰り返し、必ず5個すべて出力して完了してください）
     """
 
     try:
@@ -91,7 +94,6 @@ def generate_content_plan(df_top: pd.DataFrame, target_reader: str, user_strengt
     except Exception as e:
         return f"AIによる生成エラー: {e}"
 
-# 【改修】引数にキーワード、読者像、強みを追加し、分析の精度を向上
 def generate_market_summary(df_top: pd.DataFrame, api_key: str, keywords: str, target_reader: str, user_strength: str) -> str:
     """取得したトップデータから「なぜブルーオーシャンなのか」を解説するサマリーを生成"""
     if df_top.empty:
@@ -104,7 +106,6 @@ def generate_market_summary(df_top: pd.DataFrame, api_key: str, keywords: str, t
 
     top_titles = "\n".join([f"- {row['title']}" for _, row in df_top.head(5).iterrows()])
 
-    # 【改修】ノイズを無視し、入力された文脈に沿って分析するよう強力に指示
     prompt = f"""
     あなたはデータアナリストです。
     ユーザーは「{keywords}」というキーワードで市場調査を行いました。
