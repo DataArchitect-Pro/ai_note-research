@@ -24,20 +24,45 @@ def fetch_note_data(keyword: str, scraper_api_key: str, max_pages: int = 2) -> p
     size = 20
     api_url = "https://note.com/api/v3/searches"
     
+    # 【追加】最大3回まで自動リトライを行う設定
+    max_retries = 3 
+    
     for page in range(max_pages):
         params = {"q": keyword, "context": "note", "size": size, "start": page * size}
-        try:
-            response = requests.get(api_url, headers=headers, params=params, proxies=proxies, verify=False, timeout=60)
-            if response.status_code == 403:
-                st.error("⚠️ 外部プロキシでのアクセスが拒否されました。APIキーの残高や有効性を確認してください。")
-                break
-            elif response.status_code == 404:
-                st.error("⚠️ noteのAPIが見つかりません。")
-                break
-            elif response.status_code != 200:
-                st.error(f"⚠️ データ取得エラー: ステータスコード {response.status_code}")
-                break
+        success = False
+        
+        # リトライ用のループ
+        for attempt in range(max_retries):
+            try:
+                # タイムアウトを90秒に少し延長し、余裕を持たせる
+                response = requests.get(api_url, headers=headers, params=params, proxies=proxies, verify=False, timeout=90)
                 
+                if response.status_code == 200:
+                    success = True
+                    break # データ取得成功！リトライループを抜ける
+                    
+                elif response.status_code == 403:
+                    st.error("⚠️ 外部プロキシでのアクセスが拒否されました。APIキーの残高や有効性を確認してください。")
+                    return pd.DataFrame(all_articles) # 致命的エラーなので即終了
+                    
+                elif response.status_code == 404:
+                    st.error("⚠️ noteのAPIが見つかりません。")
+                    return pd.DataFrame(all_articles) # 致命的エラーなので即終了
+                    
+                else:
+                    # 499や500エラーの場合は、2秒待ってから別のIPでリトライする
+                    time.sleep(2.0)
+                    
+            except requests.exceptions.RequestException:
+                # ネットワークの切断やタイムアウト例外が出た場合もリトライ
+                time.sleep(2.0)
+                
+        # 3回リトライしてもダメだった場合は、そのページだけ諦めて次に進む（ツール全体は止めない）
+        if not success:
+            st.warning(f"⚠️ 通信の混雑により一部のデータ（ページ{page+1}）がスキップされました。")
+            continue
+            
+        try:
             data = response.json()
             response_data = data.get("data", {})
             
@@ -65,7 +90,7 @@ def fetch_note_data(keyword: str, scraper_api_key: str, max_pages: int = 2) -> p
             time.sleep(random.uniform(1.0, 2.0))
             
         except Exception as e:
-            st.error(f"⚠️ 予期せぬエラーが発生しました: {e}")
+            st.error(f"⚠️ データ解析中に予期せぬエラーが発生しました: {e}")
             break
             
     return pd.DataFrame(all_articles)
@@ -83,7 +108,6 @@ def calculate_advanced_score(df: pd.DataFrame, weight_demand: float = 0.5, weigh
     try:
         titles = df['title'].fillna('').tolist()
         
-        # 【改修】ユーザーの文脈（キーワードや強み）とタイトルの類似度を計算
         if user_context:
             texts = titles + [user_context]
             tfidf_matrix_all = vectorizer.fit_transform(texts)
@@ -109,7 +133,6 @@ def calculate_advanced_score(df: pd.DataFrame, weight_demand: float = 0.5, weigh
     max_days = df['days_old'].max()
     df['recency_score'] = df['days_old'] / max_days if max_days > 0 else 0.5
 
-    # 【改修】関連度スコアを正規化
     if 'relevance_score' in df.columns:
         max_rel = df['relevance_score'].max()
         if max_rel > 0:
@@ -125,7 +148,6 @@ def calculate_advanced_score(df: pd.DataFrame, weight_demand: float = 0.5, weigh
         (df['recency_score'] * weight_recency)
     )
     
-    # 【最重要】関連度を2乗して掛けることで、キーワードや強みから外れたノイズ（ハンドメイド等）をランキングの底に沈める
     df['total_score'] = (base_score * (df['relevance_score'] ** 2)) * 100
 
     for col in ['total_score', 'demand_score', 'density_score', 'recency_score', 'relevance_score']:
