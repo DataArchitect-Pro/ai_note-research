@@ -5,7 +5,6 @@ from content_generator import generate_content_plan, generate_market_summary, ex
 
 st.set_page_config(page_title="noteブルーオーシャン発掘ツール", layout="wide")
 
-# --- 1. 簡易パスワード認証 ---
 def check_password():
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
@@ -25,7 +24,6 @@ check_password()
 if 'search_done' not in st.session_state:
     st.session_state['search_done'] = False
 
-# --- 2. サイドバー（入力UI） ---
 st.sidebar.title("⚙️ 設定・入力")
 
 st.sidebar.markdown("**1. APIキーの設定**")
@@ -48,7 +46,6 @@ with st.sidebar.expander("詳細スコアリング設定"):
 
 start_button = st.sidebar.button("🚀 リサーチ＆構成作成スタート", type="primary")
 
-# --- 3. メインロジック ---
 if start_button:
     if not api_key or not scraper_api_key or not keyword:
         st.warning("⚠️ OpenAI APIキー、ScraperAPIキー、リサーチキーワードの3点は必須です。")
@@ -81,13 +78,15 @@ if start_button:
             
         df_raw_combined = pd.concat(all_raw_dfs).drop_duplicates(subset=['url']).reset_index(drop=True)
         
-        my_bar.progress(60, text="取得データをスコアリング中...")
-        df_scored = calculate_advanced_score(df_raw_combined, weight_demand, weight_density, weight_recency)
+        my_bar.progress(60, text="取得データをスコアリング中（ノイズ除去フィルター適用）...")
+        
+        # 【改修】ユーザーの文脈（キーワード＋強み）を結合してスコアリングに渡し、ノイズを排除
+        user_context_str = f"{keyword} {target_reader} {user_strength}"
+        df_scored = calculate_advanced_score(df_raw_combined, weight_demand, weight_density, weight_recency, user_context=user_context_str)
         
         my_bar.progress(70, text="AIが最適な構成案と市場サマリーを生成中...")
         final_plan = generate_content_plan(df_scored, target_reader, user_strength, api_key)
         
-        # 【改修】市場分析にキーワードと強みを引き渡し、文脈のズレを防ぐ
         keywords_str = "、".join(search_keywords)
         market_summary = generate_market_summary(df_scored, api_key, keywords_str, target_reader, user_strength)
         
@@ -99,7 +98,6 @@ if start_button:
         
         my_bar.progress(100, text="処理完了！")
 
-# --- 4. 結果表示 ---
 if st.session_state['search_done']:
     df_scored = st.session_state['df_scored']
     final_plan = st.session_state['final_plan']
@@ -122,8 +120,9 @@ if st.session_state['search_done']:
 
     st.markdown("---")
     with st.expander("📊 取得した市場データ（分析の根拠となったブルーオーシャン候補）", expanded=False):
-        st.markdown(f"**合計 {len(df_scored)}件** の記事データを分析しました。")
-        st.dataframe(df_scored[['title', 'total_score', 'demand_score', 'density_score', 'recency_score', 'url']].head(10))
+        st.markdown(f"**合計 {len(df_scored)}件** の記事データを分析しました。（※関連度スコアが低いノイズ記事は下位に排除されています）")
+        # 【改修】表の中に「relevance_score（関連度）」の列を表示する
+        st.dataframe(df_scored[['title', 'total_score', 'relevance_score', 'demand_score', 'density_score', 'recency_score', 'url']].head(10))
         
         csv = df_scored.to_csv(index=False).encode('utf-8-sig') 
         st.download_button(
