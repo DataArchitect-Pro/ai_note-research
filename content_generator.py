@@ -91,7 +91,8 @@ def generate_content_plan(df_top: pd.DataFrame, target_reader: str, user_strengt
     except Exception as e:
         return f"AIによる生成エラー: {e}"
 
-def generate_market_summary(df_top: pd.DataFrame, api_key: str) -> str:
+# 【改修】引数にキーワード、読者像、強みを追加し、分析の精度を向上
+def generate_market_summary(df_top: pd.DataFrame, api_key: str, keywords: str, target_reader: str, user_strength: str) -> str:
     """取得したトップデータから「なぜブルーオーシャンなのか」を解説するサマリーを生成"""
     if df_top.empty:
         return "データがありません。"
@@ -103,12 +104,21 @@ def generate_market_summary(df_top: pd.DataFrame, api_key: str) -> str:
 
     top_titles = "\n".join([f"- {row['title']}" for _, row in df_top.head(5).iterrows()])
 
+    # 【改修】ノイズを無視し、入力された文脈に沿って分析するよう強力に指示
     prompt = f"""
-    あなたはデータアナリストです。以下のnoteで取得した「ブルーオーシャン（需要が高く競合が弱い）と判定された上位5記事」のタイトルを見て、以下の2点を200〜300文字程度のMarkdown形式で簡潔に解説してください。
-    
-    1. 取得したタイトルの全体的な概要・傾向
+    あなたはデータアナリストです。
+    ユーザーは「{keywords}」というキーワードで市場調査を行いました。
+    ターゲット層は「{target_reader}」、執筆者の強みは「{user_strength}」です。
+
+    以下のnoteで取得した「ブルーオーシャン候補の上位5記事」のタイトルを見て、ユーザーの検索意図に沿った形で、以下の2点を200〜300文字程度のMarkdown形式で簡潔に解説してください。
+
+    【重要なお願い】
+    noteの検索エンジンの仕様上、上位記事の中に「ハンドメイド」や「子育て」「無関係な資格」など、今回のキーワード（{keywords}）や強み（{user_strength}）と全く無関係なノイズ記事が混ざっている場合があります。
+    その場合は無関係な要素を完全に無視し、あくまで「{keywords}」やユーザーの強みに関連する文脈だけを抽出して、なぜこれがブルーオーシャンなのかを推察してください。
+
+    1. 取得したタイトルの全体的な概要・傾向（※キーワードに関連する部分のみ）
     2. なぜこのテーマが「需要があるのに競合が弱い（または古い）ブルーオーシャン」と言えるのかの推察
-    
+
     【抽出された上位記事】
     {top_titles}
     """
@@ -149,7 +159,6 @@ def expand_keywords_with_perplexity(keyword: str, perplexity_api_key: str) -> li
         response.raise_for_status()
         data = response.json()
         content = data['choices'][0]['message']['content']
-        # カンマ区切りの文字列をリストに変換し、余分な空白を削除
         keywords = [k.strip() for k in content.split(',')]
         return [k for k in keywords if k]
     except Exception:
