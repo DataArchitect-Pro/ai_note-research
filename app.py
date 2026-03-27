@@ -1,59 +1,99 @@
 import streamlit as st
 import pandas as pd
+import time
+import uuid
 from scraper_scorer import fetch_note_data, calculate_advanced_score
 from content_generator import generate_content_plan, generate_market_summary, expand_keywords_with_perplexity
 
 st.set_page_config(page_title="noteブルーオーシャン発掘ツール", layout="wide")
 
-# --- 1. 認証画面（デザイン改修版） ---
+# ==========================================
+# 1. 認証ロジック (先勝ちブロック + タイムアウト機能)
+# ==========================================
+@st.cache_resource
+def get_active_sessions():
+    # 構造: { "user_id": {"token": "...", "last_active": 1690000000.0} }
+    return {}
+
 def check_password():
-    if "password_correct" not in st.session_state:
-        st.session_state["password_correct"] = False
+    common_password = st.secrets.get("APP_PASSWORD", "tN2@mlVMg6wQNLRShy")
+    allowed_ids = st.secrets.get("ALLOWED_IDS", ["a380.rolls.royce@gmail.com"])
+    
+    active_sessions = get_active_sessions()
+    current_time = time.time()
+    
+    # 安全装置：30分（1800秒）操作がなかったセッションは「ログアウト忘れ」とみなし、ロックを解除する
+    TIMEOUT_SECONDS = 1800 
+    for uid in list(active_sessions.keys()):
+        if current_time - active_sessions[uid]["last_active"] > TIMEOUT_SECONDS:
+            del active_sessions[uid]
 
-    if not st.session_state["password_correct"]:
-        # タイトルとサブタイトルを中央揃えにするためのCSS
-        st.markdown("""
-            <style>
-            .auth-title {
-                text-align: center;
-                font-size: 28px;
-                font-weight: bold;
-                margin-top: 50px;
-                margin-bottom: 10px;
-            }
-            .auth-subtitle {
-                text-align: center;
-                color: #666;
-                margin-bottom: 40px;
-            }
-            </style>
-            <div class="auth-title">🔒 購入者限定エリア</div>
-            <div class="auth-subtitle">noteブルーオーシャン発掘ツール は、note記事の購入者限定で公開しています。</div>
-        """, unsafe_allow_html=True)
+    # セッションステートの初期化
+    if "user_id" not in st.session_state:
+        st.session_state["user_id"] = None
+    if "session_token" not in st.session_state:
+        st.session_state["session_token"] = None
 
-        # 画面を3分割し、中央の列にフォームを配置して中央寄せにする
+    current_user = st.session_state["user_id"]
+    current_token = st.session_state["session_token"]
+
+    # 現在ログイン中のユーザーが操作した際の生存確認（タイムアウトの更新）
+    if current_user:
+        if current_user in active_sessions and active_sessions[current_user]["token"] == current_token:
+            # 操作するたびに寿命をリセット（延長）する
+            active_sessions[current_user]["last_active"] = current_time
+        else:
+            # タイムアウト等でサーバーから消去された場合はログアウト状態に戻す
+            st.session_state["user_id"] = None
+            st.session_state["session_token"] = None
+            current_user = None
+
+    # ログインしていない場合の画面表示
+    if not current_user:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align: center; color: #333; font-size: 2.5em;'>🔒 ユーザーログイン</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #666; font-size: 1.3em; margin-bottom: 10px;'>付与された専用IDと、共通パスワードを入力してください。</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #d32f2f; font-size: 0.9em; margin-bottom: 30px;'>※同時ログイン不可（別の人が使用中のIDではログインできません）</p>", unsafe_allow_html=True)
+        
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            # st.formを使うことで、画像と同じ枠線付きのデザインになります
-            with st.form("login_form", border=True):
-                pwd = st.text_input("note記事の有料エリアにあるパスワードを入力してください", type="password")
-                # use_container_width=True でボタンの幅を枠いっぱいに広げる
-                submitted = st.form_submit_button("認証する", use_container_width=True)
+            with st.form("login_form"):
+                st.markdown("<div style='font-size: 1.0em; font-weight: bold; margin-bottom: 4px; color: #333;'>📝 専用ユーザーID</div>", unsafe_allow_html=True)
+                user_id = st.text_input("ID", placeholder="例：noteの注文IDなど", label_visibility="collapsed")
                 
-                if submitted:
-                    if pwd == "tN2@mlVMg6wQNLRShy": 
-                        st.session_state["password_correct"] = True
-                        st.rerun()
+                st.markdown("<div style='font-size: 1.0em; font-weight: bold; margin-top: 12px; margin-bottom: 4px; color: #333;'>🔑 共通パスワード</div>", unsafe_allow_html=True)
+                password = st.text_input("パスワード", type="password", placeholder="記事内にあるパスワードを入力", label_visibility="collapsed")
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                submit = st.form_submit_button("ログイン", use_container_width=True)
+
+                if submit:
+                    if password != common_password:
+                        st.error("❌ パスワードが間違っています。")
+                    elif user_id not in allowed_ids:
+                        st.error("❌ 登録されていないユーザーIDです。")
+                    elif user_id in active_sessions:
+                        # ここで「後からのログイン」を完全にブロックする
+                        st.error("❌ このIDは現在別の端末・ブラウザで利用中です。（同時ログイン不可）\n\n※前の利用者がログアウトするか、一定時間（最大30分）経過するまでお待ちください。")
                     else:
-                        st.error("パスワードが間違っています。")
+                        # 認証成功：新しいユニークトークンを発行し、時間を記録
+                        new_token = str(uuid.uuid4())
+                        st.session_state["user_id"] = user_id
+                        st.session_state["session_token"] = new_token
+                        active_sessions[user_id] = {"token": new_token, "last_active": current_time}
+                        st.rerun() 
+        
+        # 認証されるまで以降のコードを一切実行しない
         st.stop()
 
+# アプリ起動時に必ずパスワードとセッションをチェック
 check_password()
 
 if 'search_done' not in st.session_state:
     st.session_state['search_done'] = False
 
-# --- 2. サイドバー（入力UI） ---
+
+# --- 2. サイドバー（入力UIとログアウト） ---
 st.sidebar.title("⚙️ 設定・入力")
 
 st.sidebar.markdown("**1. APIキーの設定**")
@@ -75,6 +115,17 @@ with st.sidebar.expander("詳細スコアリング設定"):
     weight_recency = st.slider("情報の古さの重み", 0.0, 1.0, 0.2)
 
 start_button = st.sidebar.button("🚀 リサーチ＆構成作成スタート", type="primary")
+
+# 【追加】ログアウト機能（IDロックの即時解除）
+st.sidebar.markdown("---")
+if st.sidebar.button("🚪 ログアウトしてIDを解放する"):
+    active_sessions = get_active_sessions()
+    user_id = st.session_state.get("user_id")
+    if user_id in active_sessions:
+        del active_sessions[user_id]
+    st.session_state["user_id"] = None
+    st.session_state["session_token"] = None
+    st.rerun()
 
 # --- 3. メインロジック ---
 if start_button:
