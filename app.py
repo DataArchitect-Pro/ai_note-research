@@ -5,18 +5,47 @@ from content_generator import generate_content_plan, generate_market_summary, ex
 
 st.set_page_config(page_title="noteブルーオーシャン発掘ツール", layout="wide")
 
+# --- 1. 認証画面（デザイン改修版） ---
 def check_password():
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
 
     if not st.session_state["password_correct"]:
-        st.markdown("### 🔒 ツールへのログイン")
-        pwd = st.text_input("購入者限定パスワードを入力してください", type="password")
-        if pwd == "tN2@mlVMg6wQNLRShy": 
-            st.session_state["password_correct"] = True
-            st.rerun()
-        elif pwd:
-            st.error("パスワードが間違っています。")
+        # タイトルとサブタイトルを中央揃えにするためのCSS
+        st.markdown("""
+            <style>
+            .auth-title {
+                text-align: center;
+                font-size: 28px;
+                font-weight: bold;
+                margin-top: 50px;
+                margin-bottom: 10px;
+            }
+            .auth-subtitle {
+                text-align: center;
+                color: #666;
+                margin-bottom: 40px;
+            }
+            </style>
+            <div class="auth-title">🔒 購入者限定エリア</div>
+            <div class="auth-subtitle">noteブルーオーシャン発掘ツール は、note記事の購入者限定で公開しています。</div>
+        """, unsafe_allow_html=True)
+
+        # 画面を3分割し、中央の列にフォームを配置して中央寄せにする
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            # st.formを使うことで、画像と同じ枠線付きのデザインになります
+            with st.form("login_form", border=True):
+                pwd = st.text_input("note記事の有料エリアにあるパスワードを入力してください", type="password")
+                # use_container_width=True でボタンの幅を枠いっぱいに広げる
+                submitted = st.form_submit_button("認証する", use_container_width=True)
+                
+                if submitted:
+                    if pwd == "tN2@mlVMg6wQNLRShy": 
+                        st.session_state["password_correct"] = True
+                        st.rerun()
+                    else:
+                        st.error("パスワードが間違っています。")
         st.stop()
 
 check_password()
@@ -24,6 +53,7 @@ check_password()
 if 'search_done' not in st.session_state:
     st.session_state['search_done'] = False
 
+# --- 2. サイドバー（入力UI） ---
 st.sidebar.title("⚙️ 設定・入力")
 
 st.sidebar.markdown("**1. APIキーの設定**")
@@ -46,6 +76,7 @@ with st.sidebar.expander("詳細スコアリング設定"):
 
 start_button = st.sidebar.button("🚀 リサーチ＆構成作成スタート", type="primary")
 
+# --- 3. メインロジック ---
 if start_button:
     if not api_key or not scraper_api_key or not keyword:
         st.warning("⚠️ OpenAI APIキー、ScraperAPIキー、リサーチキーワードの3点は必須です。")
@@ -86,7 +117,6 @@ if start_button:
         my_bar.progress(70, text="AIが最適な構成案と市場サマリーを生成中...")
         
         keywords_str = "、".join(search_keywords)
-        # 【改修】構成案生成関数にも keywords_str を渡し、マッチ度評価と順位付けに活用させる
         final_plan = generate_content_plan(df_scored, keywords_str, target_reader, user_strength, api_key)
         market_summary = generate_market_summary(df_scored, api_key, keywords_str, target_reader, user_strength)
         
@@ -98,6 +128,7 @@ if start_button:
         
         my_bar.progress(100, text="処理完了！")
 
+# --- 4. 結果表示 ---
 if st.session_state['search_done']:
     df_scored = st.session_state['df_scored']
     final_plan = st.session_state['final_plan']
